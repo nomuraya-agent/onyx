@@ -3,12 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/providers/UserProvider";
-import { usePopup } from "@/components/admin/connectors/Popup";
+import { toast } from "@/hooks/useToast";
 import { AuthType } from "@/lib/constants";
 import Button from "@/refresh-components/buttons/Button";
-import ChatInputBar, {
-  ChatInputBarHandle,
-} from "@/app/app/components/input/ChatInputBar";
+import AppInputBar, { AppInputBarHandle } from "@/sections/input/AppInputBar";
 import IconButton from "@/refresh-components/buttons/IconButton";
 import Modal from "@/refresh-components/Modal";
 import { useFilters, useLlmManager } from "@/lib/hooks";
@@ -19,22 +17,21 @@ import { SettingsPanel } from "@/app/components/nrf/SettingsPanel";
 import LoginPage from "@/app/auth/login/LoginPage";
 import { sendSetDefaultNewTabMessage } from "@/lib/extension/utils";
 import { useAgents } from "@/hooks/useAgents";
-import { useProjectsContext } from "@/app/app/projects/ProjectsContext";
-import { useDeepResearchToggle } from "@/app/app/hooks/useDeepResearchToggle";
-import { useChatController } from "@/app/app/hooks/useChatController";
-import { useChatSessionController } from "@/app/app/hooks/useChatSessionController";
-import { useAssistantController } from "@/app/app/hooks/useAssistantController";
+import { useProjectsContext } from "@/providers/ProjectsContext";
+import useDeepResearchToggle from "@/hooks/useDeepResearchToggle";
+import useChatController from "@/hooks/useChatController";
+import useChatSessionController from "@/hooks/useChatSessionController";
+import useAgentController from "@/hooks/useAgentController";
 import {
   useCurrentChatState,
   useCurrentMessageHistory,
   useChatSessionStore,
   useDocumentSidebarVisible,
 } from "@/app/app/stores/useChatSessionStore";
-import MessageList from "@/components/chat/MessageList";
-import ChatScrollContainer from "@/components/chat/ChatScrollContainer";
+import ChatUI from "@/sections/chat/ChatUI";
+import ChatScrollContainer from "@/sections/chat/ChatScrollContainer";
 import WelcomeMessage from "@/app/app/components/WelcomeMessage";
 import useChatSessions from "@/hooks/useChatSessions";
-import * as AppLayouts from "@/layouts/app-layouts";
 import { cn } from "@/lib/utils";
 import Logo from "@/refresh-components/Logo";
 import Spacer from "@/refresh-components/Spacer";
@@ -49,7 +46,7 @@ import {
 import { useAppBackground } from "@/providers/AppBackgroundProvider";
 import { MinimalOnyxDocument } from "@/lib/search/interfaces";
 import DocumentsSidebar from "@/sections/document-sidebar/DocumentsSidebar";
-import TextView from "@/components/chat/TextView";
+import TextViewModal from "@/sections/modals/TextViewModal";
 
 interface NRFPageProps {
   isSidePanel?: boolean;
@@ -65,8 +62,6 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
   const filterManager = useFilters();
   const { user, authTypeMetadata } = useUser();
   const { setFolded } = useAppSidebarContext();
-
-  const { popup, setPopup } = usePopup();
 
   // Hide sidebar when in side panel mode
   useEffect(() => {
@@ -90,24 +85,22 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
     clearLastFailedFiles,
   } = useProjectsContext();
 
-  // Show popup if any files failed
+  // Show toast if any files failed
   useEffect(() => {
     if (lastFailedFiles && lastFailedFiles.length > 0) {
       const names = lastFailedFiles.map((f) => f.name).join(", ");
-      setPopup({
-        type: "error",
-        message:
-          lastFailedFiles.length === 1
-            ? `File failed and was removed: ${names}`
-            : `Files failed and were removed: ${names}`,
-      });
+      toast.error(
+        lastFailedFiles.length === 1
+          ? `File failed and was removed: ${names}`
+          : `Files failed and were removed: ${names}`
+      );
       clearLastFailedFiles();
     }
-  }, [lastFailedFiles, setPopup, clearLastFailedFiles]);
+  }, [lastFailedFiles, clearLastFailedFiles]);
 
   // Assistant controller
   const { selectedAssistant, setSelectedAssistantFromId, liveAssistant } =
-    useAssistantController({
+    useAgentController({
       selectedChatSession: undefined,
       onAssistantSelect: () => {},
     });
@@ -164,7 +157,7 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
 
   // Refs
   const inputRef = useRef<HTMLDivElement>(null);
-  const chatInputBarRef = useRef<ChatInputBarHandle | null>(null);
+  const chatInputBarRef = useRef<AppInputBarHandle | null>(null);
   const submitOnLoadPerformed = useRef<boolean>(false);
 
   // Access chat state from store
@@ -225,7 +218,6 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
       existingChatSessionId,
       selectedDocuments: [],
       searchParams: searchParams!,
-      setPopup,
       resetInputBar,
       setSelectedAssistantFromId,
     });
@@ -256,7 +248,7 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
     [handleMessageSpecificFileUpload]
   );
 
-  // Handle submit from ChatInputBar
+  // Handle submit from AppInputBar
   const handleChatInputSubmit = useCallback(
     (submittedMessage: string) => {
       if (!submittedMessage.trim()) return;
@@ -276,10 +268,7 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
       .reverse()
       .find((m) => m.type === "user");
     if (!lastUserMsg) {
-      setPopup({
-        message: "No previously-submitted user message found.",
-        type: "error",
-      });
+      toast.error("No previously-submitted user message found.");
       return;
     }
 
@@ -289,13 +278,7 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
       deepResearch: deepResearchEnabled,
       messageIdToResend: lastUserMsg.messageId,
     });
-  }, [
-    messageHistory,
-    onSubmit,
-    currentMessageFiles,
-    deepResearchEnabled,
-    setPopup,
-  ]);
+  }, [messageHistory, onSubmit, currentMessageFiles, deepResearchEnabled]);
 
   const handleOpenInOnyx = () => {
     window.open(`${window.location.origin}/app`, "_blank");
@@ -315,8 +298,6 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
           : undefined
       }
     >
-      {popup}
-
       {/* Semi-transparent overlay for readability when background is set */}
       {!isSidePanel && hasBackground && (
         <div className="absolute inset-0 bg-background/80 pointer-events-none" />
@@ -368,7 +349,7 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
                   autoScroll={autoScrollEnabled}
                   isStreaming={isStreaming}
                 >
-                  <MessageList
+                  <ChatUI
                     liveAssistant={resolvedAssistant}
                     llmManager={llmManager}
                     currentMessageFiles={currentMessageFiles}
@@ -392,49 +373,38 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
               </div>
             )}
 
-            {/* ChatInputBar container - absolutely positioned when in chat, centered when no messages */}
+            {/* AppInputBar container - in normal flex flow like AppPage */}
             <div
               ref={inputRef}
-              className={cn(
-                "flex justify-center",
-                hasMessages
-                  ? "absolute bottom-6 left-0 right-0 pointer-events-none"
-                  : "w-full"
-              )}
+              className="w-full max-w-[var(--app-page-main-content-width)] flex flex-col px-4"
             >
-              <div
-                className={cn(
-                  "w-full max-w-[var(--app-page-main-content-width)] flex flex-col px-4",
-                  hasMessages && "pointer-events-auto"
-                )}
-              >
-                <ChatInputBar
-                  ref={chatInputBarRef}
-                  deepResearchEnabled={deepResearchEnabled}
-                  toggleDeepResearch={toggleDeepResearch}
-                  toggleDocumentSidebar={() => {}}
-                  filterManager={filterManager}
-                  llmManager={llmManager}
-                  removeDocs={() => {}}
-                  retrievalEnabled={false}
-                  selectedDocuments={[]}
-                  initialMessage={message}
-                  stopGenerating={stopGenerating}
-                  onSubmit={handleChatInputSubmit}
-                  chatState={currentChatState}
-                  currentSessionFileTokenCount={currentSessionFileTokenCount}
-                  availableContextTokens={AVAILABLE_CONTEXT_TOKENS}
-                  selectedAssistant={liveAssistant ?? undefined}
-                  handleFileUpload={handleFileUpload}
-                  disabled={
-                    !llmManager.isLoadingProviders && !llmManager.hasAnyProvider
-                  }
-                />
-                <Spacer rem={0.5} />
-              </div>
+              <AppInputBar
+                ref={chatInputBarRef}
+                deepResearchEnabled={deepResearchEnabled}
+                toggleDeepResearch={toggleDeepResearch}
+                toggleDocumentSidebar={() => {}}
+                filterManager={filterManager}
+                llmManager={llmManager}
+                removeDocs={() => {}}
+                retrievalEnabled={false}
+                selectedDocuments={[]}
+                initialMessage={message}
+                stopGenerating={stopGenerating}
+                onSubmit={handleChatInputSubmit}
+                chatState={currentChatState}
+                currentSessionFileTokenCount={currentSessionFileTokenCount}
+                availableContextTokens={AVAILABLE_CONTEXT_TOKENS}
+                selectedAssistant={liveAssistant ?? undefined}
+                handleFileUpload={handleFileUpload}
+                disabled={
+                  !llmManager.isLoadingProviders && !llmManager.hasAnyProvider
+                }
+              />
+              <Spacer rem={0.5} />
             </div>
+
+            {/* Spacer to push content up when showing welcome message */}
             {!hasMessages && <div className="flex-1 w-full" />}
-            <AppLayouts.Footer />
           </div>
         )}
       </Dropzone>
@@ -456,7 +426,7 @@ export default function NRFPage({ isSidePanel = false }: NRFPageProps) {
 
       {/* Text/document preview modal */}
       {presentingDocument && (
-        <TextView
+        <TextViewModal
           presentingDocument={presentingDocument}
           onClose={() => setPresentingDocument(null)}
         />

@@ -5,7 +5,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
 import type { IconProps } from "@opal/types";
 import Text from "@/refresh-components/texts/Text";
-import IconButton from "@/refresh-components/buttons/IconButton";
+import { Button } from "@opal/components";
 import { SvgX } from "@opal/icons";
 import { WithoutStyles } from "@/types";
 import { Section, SectionProps } from "@/layouts/general-layouts";
@@ -77,7 +77,7 @@ const useModalContext = () => {
 const widthClasses = {
   lg: "w-[80dvw]",
   md: "w-[60rem]",
-  "md-sm": "w-[40rem]",
+  "md-sm": "w-[50rem]",
   sm: "w-[32rem]",
 };
 
@@ -394,7 +394,7 @@ const ModalHeader = React.forwardRef<HTMLDivElement, ModalHeaderProps>(
     }, [description, setHasDescription]);
 
     return (
-      <Section ref={ref} padding={1} alignItems="start" {...props}>
+      <Section ref={ref} padding={1} alignItems="start" height="fit" {...props}>
         <Section gap={0.5}>
           <Section
             gap={0}
@@ -417,7 +417,12 @@ const ModalHeader = React.forwardRef<HTMLDivElement, ModalHeaderProps>(
                 ref={closeButtonRef as React.RefObject<HTMLDivElement>}
               >
                 <DialogPrimitive.Close asChild>
-                  <IconButton icon={SvgX} internal onClick={onClose} />
+                  <Button
+                    icon={SvgX}
+                    prominence="tertiary"
+                    size="sm"
+                    onClick={onClose}
+                  />
                 </DialogPrimitive.Close>
               </div>
             )}
@@ -465,7 +470,7 @@ const ModalBody = React.forwardRef<HTMLDivElement, ModalBodyProps>(
         ref={ref}
         className={cn(
           twoTone && "bg-background-tint-01",
-          "min-h-0 overflow-y-auto"
+          "h-full min-h-0 overflow-y-auto w-full"
         )}
       >
         <Section padding={1} gap={1} alignItems="start" {...props}>
@@ -502,6 +507,7 @@ const ModalFooter = React.forwardRef<
       justifyContent="end"
       gap={0.5}
       padding={1}
+      height="fit"
       {...props}
     />
   );

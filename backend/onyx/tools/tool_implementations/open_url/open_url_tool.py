@@ -28,6 +28,7 @@ from onyx.server.query_and_chat.streaming_models import OpenUrlUrls
 from onyx.server.query_and_chat.streaming_models import Packet
 from onyx.tools.interface import Tool
 from onyx.tools.models import OpenURLToolOverrideKwargs
+from onyx.tools.models import ToolCallException
 from onyx.tools.models import ToolResponse
 from onyx.tools.tool_implementations.open_url.models import WebContentProvider
 from onyx.tools.tool_implementations.open_url.url_normalization import (
@@ -319,17 +320,13 @@ def _convert_sections_to_llm_string_with_citations(
         }
         if updated_at_str is not None:
             result["updated_at"] = updated_at_str
-        result["source_type"] = chunk.source_type.value
         if chunk.source_links:
             link = next(iter(chunk.source_links.values()), None)
             if link:
                 result["url"] = link
 
-        if "url" not in result:
-            result["document_identifier"] = document_id
-
         if chunk.metadata:
-            result["metadata"] = json.dumps(chunk.metadata)
+            result["metadata"] = json.dumps(chunk.metadata, ensure_ascii=False)
 
         # Calculate chars used by metadata fields (everything except content)
         metadata_chars = _estimate_result_chars(result)
@@ -354,7 +351,7 @@ def _convert_sections_to_llm_string_with_citations(
         total_chars += result_chars
 
     output = {"results": results}
-    return json.dumps(output, indent=2), citation_mapping
+    return json.dumps(output, indent=2, ensure_ascii=False), citation_mapping
 
 
 class OpenURLTool(Tool[OpenURLToolOverrideKwargs]):
@@ -416,10 +413,20 @@ class OpenURLTool(Tool[OpenURLToolOverrideKwargs]):
 
     @override
     @classmethod
-    def is_available(cls, db_session: Session) -> bool:
-        """OpenURLTool is always available since it falls back to built-in crawler."""
+    def is_available(cls, db_session: Session) -> bool:  # noqa: ARG003
+        """OpenURLTool is available unless the vector DB is disabled.
+
+        The tool uses id_based_retrieval to match URLs to indexed documents,
+        which requires a vector database. When DISABLE_VECTOR_DB is set, the
+        tool is disabled entirely.
+        """
+        from onyx.configs.app_configs import DISABLE_VECTOR_DB
+
+        if DISABLE_VECTOR_DB:
+            return False
+
         # The tool can use either a configured provider or the built-in crawler,
-        # so it's always available
+        # so it's always available when the vector DB is present
         return True
 
     def tool_definition(self) -> dict:
@@ -435,16 +442,8 @@ class OpenURLTool(Tool[OpenURLToolOverrideKwargs]):
                             "type": "array",
                             "items": {"type": "string"},
                             "description": (
-                                "List of URLs or document identifiers to open and read. "
-                                "Can be a single URL/identifier or multiple. "
-                                "Accepts: (1) Raw URLs (e.g., 'https://docs.google.com/document/d/123/edit'), "
-                                "(2) Normalized document IDs from search results "
-                                "(e.g., 'https://docs.google.com/document/d/123'), "
-                                "or (3) Non-URL document identifiers for file connectors "
-                                "(e.g., 'FILE_CONNECTOR__abc-123'). "
-                                "Use the 'document_identifier' field from search results when 'url' is not available. "
-                                "You can extract URLs or document_identifier values from search results "
-                                "to read those documents in full."
+                                "List of URLs to open and read, can be a single URL or multiple URLs. "
+                                "This will return the text content of the page(s)."
                             ),
                         },
                     },
@@ -481,8 +480,21 @@ class OpenURLTool(Tool[OpenURLToolOverrideKwargs]):
         """
         urls = _normalize_string_list(llm_kwargs.get(URLS_FIELD))
 
+        if len(urls) > override_kwargs.max_urls:
+            logger.warning(
+                f"OpenURL tool received {len(urls)} URLs, but the max is {override_kwargs.max_urls}."
+            )
+            urls = urls[: override_kwargs.max_urls]
+
         if not urls:
-            raise ValueError("OpenURL requires at least one URL to run.")
+            raise ToolCallException(
+                message=f"Missing required '{URLS_FIELD}' parameter in open_url tool call",
+                llm_facing_message=(
+                    f"The open_url tool requires a '{URLS_FIELD}' parameter "
+                    f"containing an array of URLs. Please provide "
+                    f'like: {{"urls": ["https://example.com"]}}'
+                ),
+            )
 
         self.emitter.emit(
             Packet(
@@ -520,7 +532,9 @@ class OpenURLTool(Tool[OpenURLToolOverrideKwargs]):
             # Track if timeout occurred for error reporting
             timeout_occurred = [False]  # Using list for mutability in closure
 
-            def _timeout_handler(index: int, func: Any, args: tuple[Any, ...]) -> None:
+            def _timeout_handler(
+                index: int, func: Any, args: tuple[Any, ...]  # noqa: ARG001
+            ) -> None:
                 timeout_occurred[0] = True
                 return None
 
@@ -757,7 +771,7 @@ class OpenURLTool(Tool[OpenURLToolOverrideKwargs]):
         crawled_sections: list[InferenceSection],
         url_to_doc_id: dict[str, str],
         all_urls: list[str],
-        failed_web_urls: list[str],
+        failed_web_urls: list[str],  # noqa: ARG002
     ) -> list[InferenceSection]:
         """Merge indexed and crawled results, preferring indexed when available.
 
